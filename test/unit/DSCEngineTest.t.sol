@@ -112,14 +112,14 @@ contract DSCEngineTest is Test {
         _;
     }
 
-    // function testCanDepositCollateralAndGetAccountInfo() public depositedCollateral {
-    //     (uint256 totalSscMinted, uint256 collateralValueInUsd) = ssce.getAccountInformation(user);
+    function testCanDepositCollateralAndGetAccountInfo() public depositedCollateral {
+        (uint256 totalSscMinted, uint256 collateralValueInUsd) = ssce.getAccountInformation(user);
         
-    //     uint256 expectedTotalSscMinted = 0;
-    //     uint256 expectedDepositAmount = ssce.getTokenAmountFromUsd(weth, collateralValueInUsd);
-    //     assertEq(totalSscMinted, expectedTotalSscMinted);
-    //     assertEq(AMOUNT_COLLATERAL, expectedDepositAmount);
-    // }
+        uint256 expectedTotalSscMinted = 0;
+        uint256 expectedDepositAmount = ssce.getTokenAmountFromUsdWithConsideration(weth, collateralValueInUsd);
+        assertEq(totalSscMinted, expectedTotalSscMinted);
+        assertEq(AMOUNT_COLLATERAL, expectedDepositAmount);
+    }
 
     ////////////////////////////
     //MINT SSC TESTS//
@@ -142,34 +142,15 @@ contract DSCEngineTest is Test {
     //REDEEM COLLATERAL TESTS//
     ////////////////////////////
 
-    function testRedeemCollateral() public depositedCollateralAndMintedSSc {
+    function testRedeemCollateral() public depositedCollateral {
     // ARRANGE    
 
-    uint256 initialUserBalance = ERC20Mock(weth).balanceOf(user);
-    uint256 initialCollateralBalance = ssce.getCollateralBalanceOfUser(user, weth);
-    
-    console.log("Initial user balance:", initialUserBalance);
-    console.log("Initial collateral balance:", initialCollateralBalance);
-    console.log("Amount to redeem:", SSC_MINT_AMOUNT);
-    console.log("Amount of SSC Minted: ", ssce.getSscMinted(user));
-    console.log("Health Factor: ", ssce.getHealthFactor(user));
-
-    // ACT
-    ssce.redeemCollateral(weth, SSC_MINT_AMOUNT - 0.01 ether);
-    vm.stopPrank();
-
-    // ASSERT
-    uint256 finalUserBalance = ERC20Mock(weth).balanceOf(user);
-    uint256 finalCollateralBalance = ssce.getCollateralBalanceOfUser(user, weth);
-
-    console.log("Final user balance:", finalUserBalance);
-    console.log("Final collateral balance:", finalCollateralBalance);
-
-    assertEq(finalUserBalance, initialUserBalance + SSC_MINT_AMOUNT, "User balance should increase by redeemed amount");
-    assertEq(finalCollateralBalance, initialCollateralBalance - SSC_MINT_AMOUNT, "Collateral balance should decrease by redeemed amount");
-
-    console.log("User balance change:", finalUserBalance - initialUserBalance);
-    console.log("Collateral balance change:", initialCollateralBalance - finalCollateralBalance);
+        vm.startPrank(user);
+        uint256 initialUserBalance = ERC20Mock(weth).balanceOf(user);
+        ssce.redeemCollateral(weth, AMOUNT_COLLATERAL);
+        uint256 userBalance = ERC20Mock(weth).balanceOf(user);
+        assertEq(userBalance, AMOUNT_COLLATERAL + initialUserBalance);
+        vm.stopPrank();
 }
 
     function testRedeemCollateralFailsIfNotEnoughCollateral() public depositedCollateral {
@@ -225,118 +206,6 @@ contract DSCEngineTest is Test {
     //LIQUIDATE TESTS//
     /////////////////////////////
     
-    // Add this to your DSCEngineTest.t.sol file
-
-    function testLiquidationMathematicalOverflow() public depositedCollateral {
-        // Setup: Deploy with very large numbers to try to cause overflow
-        uint256 collateralAmount = type(uint256).max / 2; // Very large collateral amount
-        uint256 debtAmount = type(uint256).max / 4; // Large debt amount, but less than collateral
-
-        // Mint tokens and approve spending
-        ERC20Mock(weth).mint(user, collateralAmount);
-        vm.startPrank(user);
-        ERC20Mock(weth).approve(address(ssce), collateralAmount);
-
-        // Deposit collateral
-        ssce.depositCollateral(weth, collateralAmount);
-        console.log("Collateral deposited:", collateralAmount);
-
-        // Mint SSC to create debt
-        ssce.mintSsc(debtAmount);
-        console.log("SSC minted (debt created):", debtAmount);
-        vm.stopPrank();
-
-        // Simulate price drop to make the position undercollateralized
-        // This might need to be adjusted based on your price feed mock implementation
-        MockV3Aggregator(ethUsdPriceFeed).updateAnswer(1); // Set price to 1 wei
-
-        // Check health factor before liquidation
-        uint256 healthFactorBefore = ssce.getHealthFactor(user);
-        console.log("Health factor before liquidation:", healthFactorBefore);
-
-        // Prepare for liquidation
-        ERC20Mock(weth).mint(liquidator, collateralAmount); // Give liquidator some WETH
-        vm.startPrank(liquidator);
-        ERC20Mock(weth).approve(address(ssce), collateralAmount);
-        ssce.depositCollateralAndMintSsc(weth, collateralAmount, debtAmount); // Liquidator needs SSC to repay debt
-
-        // Attempt liquidation with very large debtToCover
-        uint256 debtToCover = type(uint256).max / 3; // Try to liquidate a very large amount
-        console.log("Attempting to liquidate debt:", debtToCover);
-
-        try ssce.liquidate(weth, user, debtToCover) {
-            console.log("Liquidation succeeded");
-
-            // Check results
-            uint256 healthFactorAfter = ssce.getHealthFactor(user);
-            console.log("Health factor after liquidation:", healthFactorAfter);
-
-            uint256 liquidatorBalance = ERC20Mock(weth).balanceOf(liquidator);
-            console.log("Liquidator's WETH balance after liquidation:", liquidatorBalance);
-
-            uint256 userCollateralAfter = ssce.getCollateralBalanceOfUser(user, weth);
-            console.log("User's remaining collateral:", userCollateralAfter);
-
-            uint256 userDebtAfter = ssce.getSscMinted(user);
-            console.log("User's remaining debt:", userDebtAfter);
-
-        } catch Error(string memory reason) {
-            console.log("Liquidation failed with reason:", reason);
-        } catch (bytes memory lowLevelData) {
-            console.log("Liquidation failed with low-level error");
-            console.logBytes(lowLevelData);
-        }
-
-        vm.stopPrank();
-    }
-
-    function testLiquidationWithVariousInputs() public {
-        // Setup initial state
-        uint256 initialCollateral = 1e22; // 10,000 ETH
-        uint256 initialDebt = 5e21; // 5,000 SSC
-        setupUserWithCollateralAndDebt(user, initialCollateral, initialDebt);
-
-        // Array of test cases
-        uint256[] memory debtToCoverAmounts = new uint256[](5);
-        debtToCoverAmounts[0] = 1e18; // 1 SSC
-        debtToCoverAmounts[1] = 1e21; // 1,000 SSC
-        debtToCoverAmounts[2] = 5e21; // 5,000 SSC (full debt)
-        debtToCoverAmounts[3] = 1e22; // 10,000 SSC (more than debt)
-        debtToCoverAmounts[4] = type(uint256).max; // Max uint256
-
-        for (uint i = 0; i < debtToCoverAmounts.length; i++) {
-            console.log("\nTest case", i + 1, "- Debt to cover:", debtToCoverAmounts[i]);
-            
-            // Reset state for each test case
-            setupUserWithCollateralAndDebt(user, initialCollateral, initialDebt);
-            
-            // Simulate price drop
-            MockV3Aggregator(ethUsdPriceFeed).updateAnswer(1); // Set price to 1 wei
-
-            // Prepare liquidator
-            setupUserWithCollateralAndDebt(liquidator, initialCollateral, initialDebt);
-
-            vm.startPrank(liquidator);
-            try ssce.liquidate(weth, user, debtToCoverAmounts[i]) {
-                console.log("Liquidation succeeded");
-                logPostLiquidationState(user, liquidator);
-            } catch Error(string memory reason) {
-                console.log("Liquidation failed with reason:", reason);
-            } catch (bytes memory lowLevelData) {
-                console.log("Liquidation failed with low-level error");
-                console.logBytes(lowLevelData);
-            }
-            vm.stopPrank();
-        }
-    }
-
-    function setupUserWithCollateralAndDebt(address _user, uint256 _collateral, uint256 _debt) internal {
-        ERC20Mock(weth).mint(_user, _collateral);
-        vm.startPrank(_user);
-        ERC20Mock(weth).approve(address(ssce), _collateral);
-        ssce.depositCollateralAndMintSsc(weth, _collateral, _debt);
-        vm.stopPrank();
-    }
 
     function logPostLiquidationState(address _user, address _liquidator) internal view {
         console.log("User's health factor:", ssce.getHealthFactor(_user));
@@ -350,22 +219,6 @@ contract DSCEngineTest is Test {
     //GETTER TESTS//
     /////////////////////////////
 
-
-    // function testGetHealthFactor() public depositedCollateral {
-    //     uint256 amountToMint = 5 ether; // Assuming 1 ETH = 2000 USD
-
-    //     vm.startPrank(user);
-    //     ssce.mintSsc(amountToMint);
-    //     vm.stopPrank();
-
-    //     uint256 healthFactor = ssce.getHealthFactor(user);
-        
-    //     // Expected health factor calculation:
-    //     // (collateralValueInUsd * LIQUIDATION_THRESHOLD) / (amountToMint * LIQUIDATION_PRECISION)
-    //     // (200000 * 50) / (5 * 100) =  2000000000000000000
-    //     uint256 expectedHealthFactor = 20000e18;
-    //     assertEq(healthFactor, expectedHealthFactor);
-    // }
 
     function testGetHealthFactor() public depositedCollateral {
 

@@ -226,10 +226,10 @@ contract DSCEngine is ReentrancyGuard {
         uint256 amountCollateral
     ) external {
         _redeemCollateral(
-            msg.sender,
-            msg.sender,
+            tokenCollateralAddress,
             amountCollateral,
-            tokenCollateralAddress
+            address(this),
+            msg.sender
         );
     }
 
@@ -263,10 +263,10 @@ contract DSCEngine is ReentrancyGuard {
         );
 
         _redeemCollateral(
-            address(this),
-            msg.sender,
+            tokenCollateralAddress,
             amountCollateral,
-            tokenCollateralAddress
+            msg.sender,
+            msg.sender
         );
         _revertIfHealthFactorIsBroken(msg.sender);
         console.log(
@@ -360,10 +360,10 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     function _redeemCollateral(
-        address from,
-        address to,
+        address tokenCollateralAddress,
         uint256 amountCollateral,
-        address tokenCollateralAddress
+        address from,
+        address to
     ) internal {
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
         // require(
