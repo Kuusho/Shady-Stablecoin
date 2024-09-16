@@ -22,6 +22,7 @@ contract Invariants is StdInvariant, Test {
     HelperConfig public config;
     address public weth;
     address public wbtc;
+    uint256 public amount = 20 ether;
     Handler handler;
 
     function setUp() external {
@@ -40,7 +41,28 @@ contract Invariants is StdInvariant, Test {
 
         uint256 wethValue = ssce.getUsdValue(weth, totalWethDeposited);
         uint256 wbtcValue = ssce.getUsdValue(wbtc, totalWbtcDeposited);
+        
+        console.log("weth value is: ", wethValue);
+        console.log("wbtc value is: ", wbtcValue);
+        console.log("Total Supply is: ", totalSupply);
+        console.log("Times Mint is called: ", handler.timesMintIsCalled());
 
         assert(wethValue + wbtcValue >= totalSupply);
+    }
+
+    function invariant_gettersShouldNotRevert() public view {
+        ssce.getAccountCollateralValueInUsd(msg.sender);
+        ssce.getAccountInformation(msg.sender);
+        ssce.getCollateralBalanceOfUser(msg.sender, weth);
+        ssce.getCollateralTokens();
+        ssce.getHealthFactor(msg.sender);
+        ssce.getLiquidationBonus();
+        ssce.getUsdValue(weth, amount);
+        ssce.getLiquidationThreshold();
+        ssce.getMinHealthFactor();
+        ssce.getPriceFeedAddress(weth);
+        ssce.getSscMinted(msg.sender);
+        ssce.getTokenAmountFromUsdWithConsideration(weth, amount);
+
     }
 }
