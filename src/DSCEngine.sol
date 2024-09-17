@@ -290,6 +290,10 @@ contract DSCEngine is ReentrancyGuard {
     function mintSsc(
         uint256 amountSscToMint
     ) public moreThanZero(amountSscToMint) nonReentrant {
+        // require(
+        //     getAccountCollateralValueInUsd(msg.sender) >= amountSscToMint,
+        //     "Not enough collateral"
+        // );
         s_sscMinted[msg.sender] += amountSscToMint;
 
         _revertIfHealthFactorIsBroken(msg.sender);
@@ -319,7 +323,29 @@ contract DSCEngine is ReentrancyGuard {
         address collateral,
         address user,
         uint256 debtToCover
-    ) external moreThanZero(debtToCover) nonReentrant {}
+    ) external moreThanZero(debtToCover) nonReentrant isAllowedToken(collateral) {
+        uint256 startingUserHealthFactor = _healthFactor(user);
+        if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) {
+            revert DSCEngine__HealthFactorOk();
+        }
+        // If covering 100 DSC, we need to $100 of collateral
+        uint256 tokenAmountFromDebtCovered = _getTokenAmountFromUsd(collateral, debtToCover);
+        // And give them a 10% bonus
+        // So we are giving the liquidator $110 of WETH for 100 DSC
+        // We should implement a feature to liquidate in the event the protocol is insolvent
+        // And sweep extra amounts into a treasury
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+        // Burn DSC equal to debtToCover
+        // Figure out how much collateral to recover based on how much burnt
+        _redeemCollateral(collateral, tokenAmountFromDebtCovered + bonusCollateral, user, msg.sender);
+        _burnDsc(debtToCover, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _healthFactor(user);
+        // This conditional should never hit, but just in case
+        if (endingUserHealthFactor <= startingUserHealthFactor) {
+            revert DSCEngine__HealthFactorNotImproved();
+        }
+    }
 
     ////////////////////////////////
     //Internal & Private Functions//
@@ -330,11 +356,12 @@ contract DSCEngine is ReentrancyGuard {
             uint256 totalSscMinted,
             uint256 collateralValueInUsd
         ) = _getAccountInformation(user);
-        if (totalSscMinted == 0) return type(uint256).max;
-        uint256 collateralAdjustedForThreshold = (collateralValueInUsd *
-            LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        // if (totalSscMinted == 0) return type(uint256).max;
+        // uint256 collateralAdjustedForThreshold = (collateralValueInUsd *
+        //     LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
 
-        return (collateralAdjustedForThreshold * PRECISION) / totalSscMinted;
+        // return (collateralAdjustedForThreshold * PRECISION) / totalSscMinted;
+        return _calculateHealthFactor(totalSscMinted, collateralValueInUsd);
     }
 
     function _calculateHealthFactor(
@@ -391,6 +418,19 @@ contract DSCEngine is ReentrancyGuard {
         if (!success) {
             revert DSCEngine__TransferFailed();
         }
+    }
+
+    function _getTokenAmountFromUsd(
+        address token,
+        uint256 usdAmountInWei
+    ) internal view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(
+            s_priceFeeds[token]
+        );
+        (, int256 price, , , ) = priceFeed.stalePriceCheckLatestRoundData();
+        return
+            (usdAmountInWei * PRECISION) /
+            (uint256(price) * ADDITIONAL_FEED_PRECISION);
     }
 
     /*
@@ -479,13 +519,7 @@ contract DSCEngine is ReentrancyGuard {
         address token,
         uint256 usdAmountInWei
     ) external view returns (uint256) {
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(
-            s_priceFeeds[token]
-        );
-        (, int256 price, , , ) = priceFeed.stalePriceCheckLatestRoundData();
-        return
-            (usdAmountInWei * PRECISION) /
-            (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        return _getTokenAmountFromUsd(token, usdAmountInWei);
     }
 
     function getLiquidationThreshold() external pure returns (uint256) {

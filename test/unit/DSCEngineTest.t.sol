@@ -322,5 +322,112 @@ contract DSCEngineTest is Test {
         assertEq(healthFactor3, 0.5e18); // 50% liquidation threshold
     }
 
+    // ADDITIONAL TESTS
+    
+    function testRevertWhenMintingWithoutCollateral() public {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.mintSsc(1 ether);
+        vm.stopPrank();
+    }
 
+    function testRevertWhenMintingTooMuch() public depositedCollateral {
+        vm.startPrank(user);
+        uint256 maxSsc = ssce.getUsdValue(weth, AMOUNT_COLLATERAL) / 2; // 50% of collateral value
+        vm.expectRevert();
+        ssce.mintSsc(maxSsc + 1);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenBurningMoreThanOwned() public depositedCollateralAndMintedSSc {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.burnSsc(SSC_MINT_AMOUNT + 1);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenRedeemingMoreThanDeposited() public depositedCollateral {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.redeemCollateral(weth, AMOUNT_COLLATERAL + 1);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenRedeemingZero() public depositedCollateral {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.redeemCollateral(weth, 0);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenBurningZero() public depositedCollateralAndMintedSSc {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.burnSsc(0);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenMintingZero() public {   
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.mintSsc(0);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenDepositingZero() public {
+        vm.startPrank(user);    
+        vm.expectRevert();
+        ssce.depositCollateral(weth, 0);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenDepositingUnapprovedCollateral() public {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.depositCollateral(weth, AMOUNT_COLLATERAL);
+        vm.stopPrank();
+    }   
+
+    function testRevertWhenRedeemingUnapprovedCollateral() public {
+        vm.startPrank(user);
+        vm.expectRevert();
+        ssce.redeemCollateral(weth, AMOUNT_COLLATERAL);
+        vm.stopPrank();
+    }   
+
+    function testRevertWhenBurningUnapprovedSsc() public {  
+        vm.startPrank(user);
+        vm.expectRevert();  
+        ssce.burnSsc(SSC_MINT_AMOUNT);
+        vm.stopPrank();
+    }
+
+    function testRevertWhenLiquidatingWithInvalidCollateral() public depositedCollateralAndMintedSSc {
+        ERC20Mock invalidToken = new ERC20Mock();
+        vm.startPrank(liquidator);
+        vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
+        ssce.liquidate(user, address(invalidToken), SSC_MINT_AMOUNT);
+        vm.stopPrank();
+    }
+
+    function testMultipleCollateralDepositsAndRedemptions() public {
+        vm.startPrank(user);
+        ERC20Mock(weth).approve(address(ssce), AMOUNT_COLLATERAL * 2);
+        ERC20Mock(wbtc).mint(user, AMOUNT_COLLATERAL);
+        ERC20Mock(wbtc).approve(address(ssce), AMOUNT_COLLATERAL);
+
+        ssce.depositCollateral(weth, AMOUNT_COLLATERAL);
+        ssce.depositCollateral(wbtc, AMOUNT_COLLATERAL);
+        ssce.depositCollateral(weth, AMOUNT_COLLATERAL);
+
+        assertEq(ssce.getCollateralBalanceOfUser(user, weth), AMOUNT_COLLATERAL * 2);
+        assertEq(ssce.getCollateralBalanceOfUser(user, wbtc), AMOUNT_COLLATERAL);
+
+        ssce.redeemCollateral(weth, AMOUNT_COLLATERAL);
+        ssce.redeemCollateral(wbtc, AMOUNT_COLLATERAL / 2);
+
+        assertEq(ssce.getCollateralBalanceOfUser(user, weth), AMOUNT_COLLATERAL);
+        assertEq(ssce.getCollateralBalanceOfUser(user, wbtc), AMOUNT_COLLATERAL / 2);
+        vm.stopPrank();
+    }
 }
